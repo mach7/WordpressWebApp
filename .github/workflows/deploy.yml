@@ -1,0 +1,63 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run rsync in --dry-run mode (no changes)"
+        required: false
+        default: "false"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      SSH_HOST: ${{ secrets.DEPLOY_HOST }}        # e.g. example.com
+      SSH_USER: ${{ secrets.DEPLOY_USER }}        # e.g. deploy
+      SSH_PORT: ${{ secrets.DEPLOY_PORT }}        # e.g. 22
+      TARGET_WEB_ROOT: ${{ secrets.DEPLOY_PATH }} # e.g. /var/www/example.com
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -p "${SSH_PORT}" "${SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Verify server connectivity
+        run: ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" "echo Connected to $(hostname) && mkdir -p '${TARGET_WEB_ROOT}/webapp' '${TARGET_WEB_ROOT}/wp-content/plugins/webapp'"
+
+      - name: Rsync /webapp
+        run: |
+          RSYNC_FLAGS="-az --delete --exclude='.git/' --exclude='.github/' --exclude='.DS_Store'"
+          if [ "${DRY_RUN}" = "true" ]; then RSYNC_FLAGS="$RSYNC_FLAGS --dry-run -v"; fi
+          rsync $RSYNC_FLAGS -e "ssh -p ${SSH_PORT}" \
+            webapp/ \
+            "${SSH_USER}@${SSH_HOST}:${TARGET_WEB_ROOT}/webapp/"
+
+      - name: Rsync /wpplugin → /wp-content/plugins/webapp
+        run: |
+          RSYNC_FLAGS="-az --delete --exclude='.git/' --exclude='.github/' --exclude='.DS_Store'"
+          if [ "${DRY_RUN}" = "true" ]; then RSYNC_FLAGS="$RSYNC_FLAGS --dry-run -v"; fi
+          rsync $RSYNC_FLAGS -e "ssh -p ${SSH_PORT}" \
+            wpplugin/ \
+            "${SSH_USER}@${SSH_HOST}:${TARGET_WEB_ROOT}/wp-content/plugins/webapp/"
+
+      - name: Optional cache flush (WP-CLI if available)
+        run: |
+          ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" "
+            if command -v wp >/dev/null 2>&1; then
+              cd '${TARGET_WEB_ROOT}' && wp cache flush || true
+            fi
+          "
+
+
