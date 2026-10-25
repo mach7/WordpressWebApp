@@ -10,7 +10,7 @@ on:
 
 jobs:
   deploy:
-    if: github.actor == 'mach7'
+    if: github.actor == 'mach7' && github.triggering_actor == 'mach7'
     runs-on: ubuntu-latest
 
     env:
