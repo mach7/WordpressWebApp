@@ -1,8 +1,6 @@
 name: Deploy to Server
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -12,6 +10,7 @@ on:
 
 jobs:
   deploy:
+    if: github.actor == 'mach7'
     runs-on: ubuntu-latest
 
     env:
